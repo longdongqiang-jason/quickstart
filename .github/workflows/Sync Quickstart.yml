@@ -1,0 +1,167 @@
+name: Sync Quickstart
+
+on:
+  workflow_dispatch:
+  schedule:
+    # 每天北京时间 03:00 运行
+    # GitHub Actions 使用 UTC
+    - cron: "0 19 * * *"
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout target repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      # 获取上游最新 commit
+      - name: Get upstream commits
+        id: upstream
+        run: |
+          LUCIPKG_COMMIT=$(git ls-remote \
+            https://github.com/linkease/nas-packages-luci.git \
+            refs/heads/main | cut -f1)
+
+          NASPKG_COMMIT=$(git ls-remote \
+            https://github.com/linkease/nas-packages.git \
+            refs/heads/master | cut -f1)
+
+          echo "LUCIPKG_COMMIT=$LUCIPKG_COMMIT" >> "$GITHUB_ENV"
+          echo "NASPKG_COMMIT=$NASPKG_COMMIT" >> "$GITHUB_ENV"
+
+          echo "nas-packages-luci 最新 commit: $LUCIPKG_COMMIT"
+          echo "nas-packages 最新 commit: $NASPKG_COMMIT"
+
+      # 检查上次同步的 commit
+      - name: Check upstream changes
+        id: check
+        run: |
+          LAST_LUCI=""
+          LAST_NAS=""
+
+          if [ -f .sync-lucipkg-commit ]; then
+            LAST_LUCI=$(cat .sync-lucipkg-commit)
+          fi
+
+          if [ -f .sync-naspkg-commit ]; then
+            LAST_NAS=$(cat .sync-naspkg-commit)
+          fi
+
+          echo "上次同步 nas-packages-luci: $LAST_LUCI"
+          echo "当前 nas-packages-luci: $LUCIPKG_COMMIT"
+
+          echo "上次同步 nas-packages: $LAST_NAS"
+          echo "当前 nas-packages: $NASPKG_COMMIT"
+
+          if [ "$LAST_LUCI" = "$LUCIPKG_COMMIT" ] && \
+             [ "$LAST_NAS" = "$NASPKG_COMMIT" ]; then
+
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "上游没有更新，不执行同步。"
+
+          else
+
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "检测到上游更新，开始同步。"
+
+          fi
+
+      # 没有更新直接结束
+      - name: Stop if no upstream changes
+        if: steps.check.outputs.changed == 'false'
+        run: |
+          echo "No upstream changes."
+          exit 0
+
+      # 拉取上游仓库
+      - name: Clone upstream repositories
+        if: steps.check.outputs.changed == 'true'
+        run: |
+          git clone --depth 1 --branch main \
+            https://github.com/linkease/nas-packages-luci.git \
+            /tmp/nas-packages-luci
+
+          git clone --depth 1 --branch master \
+            https://github.com/linkease/nas-packages.git \
+            /tmp/nas-packages
+
+      # 同步 luci-app-quickstart
+      - name: Sync luci-app-quickstart
+        if: steps.check.outputs.changed == 'true'
+        run: |
+          rm -rf luci-app-quickstart
+          mkdir -p luci-app-quickstart
+
+          cp -a \
+            /tmp/nas-packages-luci/luci/luci-app-quickstart/. \
+            luci-app-quickstart/
+
+      # 同步 quickstart
+      - name: Sync quickstart
+        if: steps.check.outputs.changed == 'true'
+        run: |
+          rm -rf quickstart
+          mkdir -p quickstart
+
+          cp -a \
+            /tmp/nas-packages/network/services/quickstart/. \
+            quickstart/
+
+      # 保存上游 commit
+      - name: Save upstream commits
+        if: steps.check.outputs.changed == 'true'
+        run: |
+          echo "$LUCIPKG_COMMIT" > .sync-lucipkg-commit
+          echo "$NASPKG_COMMIT" > .sync-naspkg-commit
+
+      # 显示变化
+      - name: Show changes
+        if: steps.check.outputs.changed == 'true'
+        run: |
+          git status
+          git diff --stat
+
+      # 提交同步
+      - name: Commit and push
+        id: commit
+        if: steps.check.outputs.changed == 'true'
+        run: |
+          git add \
+            luci-app-quickstart \
+            quickstart \
+            .sync-lucipkg-commit \
+            .sync-naspkg-commit
+
+          if git diff --cached --quiet; then
+            echo "没有检测到文件变化。"
+            echo "committed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          git commit -m "sync: update quickstart from upstream"
+
+          git push origin main
+
+          echo "committed=true" >> "$GITHUB_OUTPUT"
+
+      # 同步成功后运行 modify-quickstart.yml
+      - name: Run modify-quickstart.yml
+        if: steps.commit.outputs.committed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "同步完成，开始运行 modify-quickstart.yml"
+
+          gh workflow run modify-quickstart.yml \
+            --repo "${{ github.repository }}" \
+            --ref main
+
+          echo "modify-quickstart.yml 已触发"
