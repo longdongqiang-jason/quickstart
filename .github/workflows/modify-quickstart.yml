@@ -1,0 +1,133 @@
+name: Modify Quickstart
+
+on:
+  workflow_dispatch:
+
+jobs:
+  modify:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Modify index.js
+        shell: python
+        run: |
+          from pathlib import Path
+
+          file = Path(
+              "luci-app-quickstart/htdocs/luci-static/quickstart/index.js"
+          )
+
+          content = file.read_text(encoding="utf-8")
+
+          replacements = [
+              (
+                  "/cgi-bin/luci/admin/store/pages/maintance",
+                  "/cgi-bin/luci/admin/system/flash",
+              ),
+              (
+                  r"iStoreOS\u5B98\u7F51",
+                  r"\u5B98\u7F51",
+              ),
+              (
+                  "iStoreOS官网",
+                  "官网",
+              ),
+              (
+                  "https://www.istoreos.com/",
+                  "https://github.com/longdongqiang-jason/X86-daed/releases/latest",
+              ),
+              (
+                  'class:"model_btn"',
+                  'class:"model_btn",style:{transform:"translateY(-40px)"}',
+              ),
+              (
+                  'style:{"text-decoration":"none",color:"white","line-height":"1.5em"}}',
+                  'style:{"text-decoration":"none",color:"white","line-height":"1.5em","transform": "translateY(-42px)"}}',
+              ),
+              (
+                  'quickActions:!0',
+                  'quickActions:!1',
+              ),      
+              (
+                  'storage:!0',
+                  'storage:!1',
+              ),
+              (
+                  'downloadService:!0',
+                  'downloadService:!1',
+              ), 
+              (
+                  'remoteDomain:!0',
+                  'remoteDomain:!1',
+              ),                  
+          ]
+
+          for old, new in replacements:
+              if old not in content:
+                  print(f"WARNING: 未找到目标内容: {old}")
+              else:
+                  content = content.replace(old, new)
+
+          # 删除应用商店对象项
+          app_store = r',{icon:"appStore",title:n("\u5E94\u7528\u5546\u5E97"),subtitle:n("\u767E\u6B3E\u5E94\u7528\uFF0C\u81EA\u7531\u9009\u62E9"),status:"",color:"orange",alink:"/cgi-bin/luci/admin/store/pages/store"}'
+
+          if app_store in content:
+              content = content.replace(app_store, "")
+              print("已删除 index.js 中的应用商店项目")
+          else:
+              print("WARNING: 未找到 index.js 中的应用商店项目")
+
+          file.write_text(content, encoding="utf-8")
+
+      - name: Modify Makefile
+        shell: python
+        run: |
+          from pathlib import Path
+
+          file = Path("luci-app-quickstart/Makefile")
+
+          content = file.read_text(encoding="utf-8")
+
+          # 删除 +luci-app-store
+          old = "+luci-app-store"
+
+          if old in content:
+              content = content.replace(old, "")
+              print("已删除 Makefile 中的 +luci-app-store")
+          else:
+              print("WARNING: Makefile 中未找到 +luci-app-store")
+
+          file.write_text(content, encoding="utf-8")
+
+      - name: Show changes
+        run: |
+          echo "========== index.js =========="
+          git diff -- luci-app-quickstart/htdocs/luci-static/quickstart/index.js
+
+          echo "========== Makefile =========="
+          git diff -- luci-app-quickstart/Makefile
+
+      - name: Commit and push
+        run: |
+          if git diff --quiet; then
+            echo "没有检测到任何修改，不需要提交。"
+            exit 0
+          fi
+
+          git add \
+            luci-app-quickstart/htdocs/luci-static/quickstart/index.js \
+            luci-app-quickstart/Makefile
+
+          git commit -m "fix: update quickstart links and dependencies"
+
+          git push origin main
