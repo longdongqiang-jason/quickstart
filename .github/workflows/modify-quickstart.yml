@@ -1,4 +1,4 @@
-name: Modify Quickstart Website Label
+name: Modify Quickstart
 
 on:
   workflow_dispatch:
@@ -6,34 +6,211 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: modify-quickstart-main
+  cancel-in-progress: false
+
 jobs:
   modify:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
         with:
           ref: main
+          fetch-depth: 0
 
-      - name: Rename website label
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Modify index.js
         shell: python
         run: |
           from pathlib import Path
+          import re
 
           file = Path("luci-app-quickstart/htdocs/luci-static/quickstart/index.js")
-          original = file.read_bytes()
-          updated = original.replace(
-              rb"iStoreOS\u5B98\u7F51", rb"\u5B98\u7F51"
-          ).replace("iStoreOS官网".encode("utf-8"), "官网".encode("utf-8"))
-          if updated != original:
-              file.write_bytes(updated)
-          else:
-              print("未找到旧文案，无需提交。")
+          content = file.read_text(encoding="utf-8")
+
+          # Remove our earlier helper before inserting the current version.
+          content = re.sub(
+              r"/\* quickstart-online-modal-v\d+:[\s\S]*?\n\}\)\(\);\n?",
+              "", content, count=1
+          )
+
+          replacements = [
+              ("/cgi-bin/luci/admin/store/pages/maintance", "/cgi-bin/luci/admin/system/flash?online_update=1"),
+              (r"iStoreOS\u5B98\u7F51", r"\u5B98\u7F51"),
+              ("iStoreOS官网", "官网"),
+              ("https://www.istoreos.com/", "https://github.com/longdongqiang-jason/X86-daed/releases/latest"),
+              ('class:"model_btn"', 'class:"model_btn",style:{transform:"translateY(-40px)"}'),
+              ('style:{"text-decoration":"none",color:"white","line-height":"1.5em"}}',
+               'style:{"text-decoration":"none",color:"white","line-height":"1.5em","transform": "translateY(-42px)"}}'),
+              ('quickActions:!0', 'quickActions:!1'),
+              ('storage:!0', 'storage:!1'),
+              ('downloadService:!0', 'downloadService:!1'),
+              ('remoteDomain:!0', 'remoteDomain:!1'),
+          ]
+          for old, new in replacements:
+              if new in content and (old in new or old not in content):
+                  continue
+              if old not in content:
+                  print(f"WARNING: 未找到目标内容: {old}")
+              else:
+                  content = content.replace(old, new)
+
+          # Upgrade plain flash links without duplicating query parameters.
+          content = re.sub(
+              r"(/cgi-bin/luci/admin/system/flash)(?=[\"'])",
+              r"\1?online_update=1", content
+          )
+          # Turn maintenance navigation callbacks into dashboard popup calls.
+          content, count = re.subn(
+              r"window\.location\.href\s*=\s*[\"']/cgi-bin/luci/admin/system/flash\?online_update=1[\"']",
+              "window.openX86OnlineUpdate()", content
+          )
+          if not count and "window.openX86OnlineUpdate()" not in content:
+              raise SystemExit("未找到系统维护点击回调，停止修改，请检查新版首页结构")
+
+          app_store = r''',{icon:"appStore",title:n("\u5E94\u7528\u5546\u5E97"),subtitle:n("\u767E\u6B3E\u5E94\u7528\uFF0C\u81EA\u7531\u9009\u62E9"),status:"",color:"orange",alink:"/cgi-bin/luci/admin/store/pages/store"}'''
+          if app_store in content:
+              content = content.replace(app_store, "")
+              print("已删除应用商店项目")
+
+          HELPER = r'''/* quickstart-online-modal-v4: preserve the dashboard and reuse native flash flow. */
+          (function () {
+              var active = null;
+              window.openX86OnlineUpdate = function () {
+                  if (active) return;
+                  var layer = document.createElement('div');
+                  layer.style.cssText = 'position:fixed;inset:0;z-index:2147483000;background:transparent';
+                  var frame = document.createElement('iframe');
+                  frame.title = '在线更新';
+                  frame.style.cssText = 'width:100%;height:100%;border:0;background:transparent;visibility:hidden;opacity:0';
+                  var hint = document.createElement('div');
+                  hint.textContent = '正在打开在线更新…';
+                  hint.style.cssText = 'display:none;position:absolute;top:40%;left:50%;transform:translateX(-50%);background:white;color:#333;padding:24px;border-radius:6px';
+                  var exit = document.createElement('button');
+                  exit.type = 'button';
+                  exit.textContent = '关闭窗口';
+                  exit.style.cssText = 'display:none;position:absolute;right:16px;top:8px;z-index:2;padding:6px 12px;border:1px solid #bbb;border-radius:4px;cursor:pointer;color:#333;background:white';
+                  var timer = null, seen = false, idleSince = 0, revealPending = false;
+                  var loadingTimer = window.setTimeout(function () {
+                      if (!seen && active === layer) { hint.style.display = "block"; exit.style.display = "block"; }
+                  }, 1200);
+                  var oldOverflow = document.body.style.overflow;
+                  function close() {
+                      if (timer) window.clearInterval(timer);
+                      window.clearTimeout(deadline);
+                      window.clearTimeout(loadingTimer);
+                      layer.remove();
+                      document.body.style.overflow = oldOverflow;
+                      active = null;
+                  }
+                  exit.onclick = function () {
+                      /* Let the original modal close handler stop progress polling first. */
+                      try {
+                          var doc = frame.contentDocument;
+                          var buttons = doc.querySelectorAll('#modal_overlay button');
+                          for (var i = 0; i < buttons.length; i++) {
+                              if (/^(关闭|取消|Close|Cancel)$/i.test(buttons[i].textContent.trim()) && !buttons[i].disabled) {
+                                  buttons[i].click(); break;
+                              }
+                          }
+                      } catch (e) {}
+                      close();
+                  };
+                  var deadline = window.setTimeout(function () {
+                      if (!seen) hint.textContent = '未能打开更新窗口。请确认 flash.js 已加入自动打开逻辑，且当前登录有效。';
+                  }, 30000);
+                  frame.onload = function () {
+                      if (timer) window.clearInterval(timer);
+                      try {
+                          var doc = frame.contentDocument;
+                          if (doc.querySelector('input[type="password"]')) {
+                              hint.textContent = '登录已失效，请刷新首页并重新登录后再试。';
+                              return;
+                          }
+                          var style = doc.createElement('style');
+                          style.textContent = 'html,body{background:transparent!important;background-image:none!important}body{visibility:hidden!important}body > :not(#modal_overlay){display:none!important}body.modal-overlay-active #modal_overlay,body.modal-overlay-active #modal_overlay *{visibility:visible!important}body.modal-overlay-active #modal_overlay{position:fixed!important;inset:0!important;margin:0!important;background:transparent!important;z-index:2147483000!important}#modal_overlay,#modal_overlay .modal{animation:none!important;transition:none!important}';
+                          doc.head.appendChild(style);
+                          doc.addEventListener('click', function (event) {
+                              var button = event.target.closest && event.target.closest('button');
+                              if (!button || button.disabled ||
+                                  !/^(关闭|取消|Close|Cancel)$/i.test(button.textContent.trim())) return;
+                              window.setTimeout(function () {
+                                  if (active === layer && !doc.body.classList.contains('modal-overlay-active')) close();
+                              }, 0);
+                          }, true);
+                          timer = window.setInterval(function () {
+                              var showing = doc.body.classList.contains('modal-overlay-active');
+                              if (showing) {
+                                  seen = true; idleSince = 0;
+                                  hint.style.display = 'none';
+                                  if (!revealPending) {
+                                      revealPending = true;
+                                      window.requestAnimationFrame(function () {
+                                          window.requestAnimationFrame(function () {
+                                              if (active !== layer) return;
+                                              layer.style.background = 'rgba(0,0,0,.4)';
+                                              frame.style.visibility = 'visible';
+                                              frame.style.opacity = '1';
+                                          });
+                                      });
+                                  }
+                                  /* Avoid an extra dismiss button during a running upgrade. */
+                                  exit.style.display = 'none';
+                                  window.clearTimeout(deadline);
+                              } else if (seen) {
+                                  if (!idleSince) idleSince = Date.now();
+                                  if (Date.now() - idleSince > 1500) close();
+                              }
+                          }, 150);
+                      } catch (e) {
+                          hint.textContent = '无法加载同源升级页面：' + e.message;
+                      }
+                  };
+                  active = layer;
+                  document.body.style.overflow = 'hidden';
+                  layer.appendChild(frame); layer.appendChild(hint); layer.appendChild(exit);
+                  document.body.appendChild(layer);
+                  frame.src = '/cgi-bin/luci/admin/system/flash?online_update=1';
+              };
+              document.addEventListener('click', function (event) {
+                  var link = event.target.closest && event.target.closest('a[href]');
+                  if (!link) return;
+                  var url = new URL(link.href, window.location.href);
+                  if (url.origin === window.location.origin &&
+                      url.pathname.replace(/\/$/, '') === '/cgi-bin/luci/admin/system/flash' &&
+                      url.searchParams.get('online_update') === '1') {
+                      event.preventDefault(); event.stopImmediatePropagation();
+                      window.openX86OnlineUpdate();
+                  }
+              }, true);
+          })();'''
+          content = HELPER + "\n" + content
+          file.write_text(content, encoding="utf-8")
+          print("已接入首页弹窗：防闪、隐藏升级页背景、即时关闭")
+
+      - name: Modify Makefile
+        shell: python
+        run: |
+          from pathlib import Path
+          file = Path("luci-app-quickstart/Makefile")
+          content = file.read_text(encoding="utf-8")
+          file.write_text(content.replace("+luci-app-store", ""), encoding="utf-8")
+
+      - name: Show changes
+        run: git diff --stat -- luci-app-quickstart/htdocs/luci-static/quickstart/index.js luci-app-quickstart/Makefile
 
       - name: Commit and push
         run: |
-          git add -- luci-app-quickstart/htdocs/luci-static/quickstart/index.js
+          git add luci-app-quickstart/htdocs/luci-static/quickstart/index.js luci-app-quickstart/Makefile
           if git diff --cached --quiet; then
+            echo "没有修改，不需要提交。"
             exit 0
           fi
-          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'fix: rename Quickstart website label'
+          git commit -m "fix: open firmware update dialog from quickstart dashboard"
           git push origin HEAD:main
