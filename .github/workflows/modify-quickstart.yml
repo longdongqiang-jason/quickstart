@@ -29,7 +29,12 @@ jobs:
         shell: python
         run: |
           from pathlib import Path
+          import os
           import re
+
+          # GitHub Actions supplies the owner of the repository running this workflow.
+          owner = os.environ["GITHUB_REPOSITORY_OWNER"]
+          website = f"https://github.com/{owner}/X86-daed/releases/latest"
 
           root = Path("luci-app-quickstart/htdocs/luci-static/quickstart")
           app_file = root / "app.js"
@@ -115,17 +120,14 @@ jobs:
           toolbar = 'Ew={class:"home-top","data-home-top":"",style:{marginTop:"-16px"}}'
           replace(toolbar if toolbar in app else 'Ew={class:"home-top","data-home-top":""}', 'Ew={class:"home-top","data-home-top":"",style:{marginTop:"-56px"}}')
 
-          # Use the website destination configured in the supplied workflow.
-          website = "https://github.com/longdongqiang-jason/X86-daed/releases/latest"
-          site_anchor = 'Dw={href:'
-          for href in (f'"{website}"', '"https://github.com/longdongqiang-jason/X86-daed/releases/latest"', '"https://www.istoreos.com/"', 'firmwareReleases'):
-              if site_anchor + href in app:
-                  replace(site_anchor + href, site_anchor + f'"{website}"')
-                  break
-          else:
-              raise SystemExit("app.js 缺少右上角官网链接")
-          if 'r("iStoreOS官网","iStoreOS website")' in app:
-              replace('r("iStoreOS官网","iStoreOS website")', 'r("官网","Website")')
+          # Set the homepage website link from the address above.
+          app, website_links = re.subn(
+              r'(Dw=\{href:)"[^"\r\n]*"(?=,target:"_blank")',
+              lambda link: link[1] + f'"{website}"',
+              app,
+          )
+          if website_links != 1:
+              raise SystemExit("app.js 缺少唯一的右上角官网链接")
 
           # Replace the old overlay and use the same app.js URL as the lazy modules.
           helper_pattern = r"\A/\* quickstart-online-modal-v\d+:[\s\S]*?\n\}\)\(\);\n?"
