@@ -128,6 +128,15 @@ jobs:
           )
           if website_links != 1:
               raise SystemExit("app.js 缺少唯一的右上角官网链接")
+          # The bundle can store the Chinese label as UTF-8 or JavaScript Unicode escapes.
+          app, website_labels = re.subn(
+              r'(?P<translate>[$\w]+)\("(?:iStoreOS)?(?:官|\\u5[bB]98)(?:网|\\u7[fF]51)",'
+              r'"(?:iStoreOS website|Website)"\)(?=\),1\),G\(bw\))',
+              lambda label: f'{label["translate"]}("官网","Website")',
+              app,
+          )
+          if website_labels != 1:
+              raise SystemExit("app.js 缺少唯一的右上角官网文案")
 
           # Replace the old overlay and use the same app.js URL as the lazy modules.
           helper_pattern = r"\A/\* quickstart-online-modal-v\d+:[\s\S]*?\n\}\)\(\);\n?"
