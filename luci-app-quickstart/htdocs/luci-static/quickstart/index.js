@@ -1,3 +1,16 @@
+// Hide the Argon sidebar entry while QuickStart is loaded.
+const quickstartSidebarStyle = document.createElement("style");
+quickstartSidebarStyle.textContent = `
+    .main-left li:has(> a:is(
+        [href$="/admin/network_guide"],
+        [href$="/admin/network_guide/"],
+        [href*="/admin/network_guide?"]
+    )) {
+        display: none !important;
+    }
+`;
+document.head.appendChild(quickstartSidebarStyle);
+
 /* quickstart-online-modal-v5: preserve the dashboard and reuse native flash flow. */
 (function () {
     var active = null;
