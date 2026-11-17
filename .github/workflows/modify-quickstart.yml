@@ -291,6 +291,20 @@ jobs:
           node --input-type=module --check < "$dir/app.js"
           node --input-type=module --check < "$dir/index.js"
 
+      - name: Hide Network Guide from LuCI sidebar
+        shell: python
+        run: |
+          from pathlib import Path
+
+          controller = Path("luci-app-quickstart/luasrc/controller/quickstart.lua")
+          source = controller.read_text(encoding="utf-8")
+          visible = 'entry({"admin", "network_guide"}, call("networkguide_index"), _("NetworkGuide"), 2)'
+          hidden = 'entry({"admin", "network_guide"}, call("networkguide_index"))'
+          if source.count(visible) == 1 and hidden not in source:
+              controller.write_text(source.replace(visible, hidden, 1), encoding="utf-8")
+          elif source.count(hidden) != 1 or visible in source:
+              raise SystemExit("无法定位 LuCI 侧栏的网络向导入口")
+
       - name: Modify Makefile
         shell: python
         run: |
@@ -300,12 +314,13 @@ jobs:
           file.write_text(content.replace("+luci-app-store", ""), encoding="utf-8")
 
       - name: Show changes
-        run: git diff --stat -- luci-app-quickstart/htdocs/luci-static/quickstart/index.js luci-app-quickstart/htdocs/luci-static/quickstart/app.js luci-app-quickstart/Makefile
+        run: git diff --stat -- luci-app-quickstart/htdocs/luci-static/quickstart/index.js luci-app-quickstart/htdocs/luci-static/quickstart/app.js luci-app-quickstart/Makefile luci-app-quickstart/luasrc/controller/quickstart.lua
 
       - name: Commit and push
         run: |
           git add luci-app-quickstart/htdocs/luci-static/quickstart/index.js luci-app-quickstart/Makefile
           git add luci-app-quickstart/htdocs/luci-static/quickstart/app.js
+          git add luci-app-quickstart/luasrc/controller/quickstart.lua
           if git diff --cached --quiet; then
             echo "没有修改，不需要提交。"
             exit 0
