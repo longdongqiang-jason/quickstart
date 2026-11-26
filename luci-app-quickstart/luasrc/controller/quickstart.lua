@@ -7,7 +7,7 @@ function index()
     if luci.sys.call("pgrep quickstart >/dev/null") == 0 then
         local uci = require "luci.model.uci".cursor()
         entry({"admin", "quickstart"}, template("quickstart/home"), _("QuickStart"), 1).leaf = true
-        entry({"admin", "network_guide"}, call("networkguide_index"), _("NetworkGuide"), 2)
+        entry({"admin", "network_guide"}, call("networkguide_index"))
         entry({"admin", "network_guide", "pages"}, call("quickstart_index", {index={"admin", "network_guide", "pages"}})).leaf = true
         if uci:get("quickstart", "main", "wifi_menu") == "1" then
             entry({"admin", "quickwifi"}, call("quickwifi_index"), _("Wireless"), 3)
